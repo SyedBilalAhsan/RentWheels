@@ -1,18 +1,68 @@
-const LocalStrategy = require('passport-local').Strategy;
-const bcrypt = require('bcryptjs');
+const LocalStrategy = require("passport-local").Strategy;
+const bcrypt = require("bcryptjs");
 
 // Load User model
-const User = require('../models/User');
+const User = require("../models/User");
+const Admin = require("../models/Admin");
 
-module.exports = function(passport) {
+function SessionConstructor(userId, userGroup, details) {
+  this.userId = userId;
+  this.userGroup = userGroup;
+  this.details = details;
+}
+
+module.exports = function (passport) {
+  passport.serializeUser(function (userObject, done) {
+    // userObject could be a User or a Admin
+    let userGroup = "User";
+    let userPrototype = Object.getPrototypeOf(userObject);
+    if (userPrototype === User.prototype) {
+      userGroup = "User";
+    } else if (userPrototype === Admin.prototype) {
+      userGroup = "Admin";
+    }
+    let sessionConstructor = new SessionConstructor(
+      userObject.id,
+      userGroup,
+      ""
+    );
+    done(null, sessionConstructor);
+  });
+  passport.deserializeUser(function (sessionConstructor, done) {
+    if (sessionConstructor.userGroup == "User") {
+      User.findById(
+        {
+          _id: sessionConstructor.userId,
+        },
+        "-localStrategy.password",
+        function (err, user) {
+          // When using string syntax, prefixing a path with - will flag that path as excluded.
+          done(err, user);
+        }
+      );
+    } else if (sessionConstructor.userGroup == "Admin") {
+      Admin.findById(
+        {
+          _id: sessionConstructor.userId,
+        },
+        "-localStrategy.password",
+        function (err, user) {
+          // When using string syntax, prefixing a path with - will flag that path as excluded.
+          done(err, user);
+        }
+      );
+    }
+  });
+
   passport.use(
-    new LocalStrategy({ usernameField: 'email' }, (email, password, done) => {
+    "User",
+    new LocalStrategy({ usernameField: "email" }, (email, password, done) => {
       // Match user
       User.findOne({
-        email: email
-      }).then(user => {
+        email: email,
+      }).then((user) => {
         if (!user) {
-          return done(null, false, { message: 'That email is not registered' });
+          return done(null, false, { message: "That email is not registered" });
         }
 
         // Match password
@@ -21,20 +71,34 @@ module.exports = function(passport) {
           if (isMatch) {
             return done(null, user);
           } else {
-            return done(null, false, { message: 'Password incorrect' });
+            return done(null, false, { message: "Password incorrect" });
           }
         });
       });
     })
   );
 
-  passport.serializeUser(function(user, done) {
-    done(null, user.id);
-  });
+  passport.use(
+    "Admin",
+    new LocalStrategy({ usernameField: "email" }, (email, password, done) => {
+      // Match Admin
+      Admin.findOne({
+        email: email,
+      }).then((Admin) => {
+        if (!Admin) {
+          return done(null, false, { message: "That email is not registered" });
+        }
 
-  passport.deserializeUser(function(id, done) {
-    User.findById(id, function(err, user) {
-      done(err, user);
-    });
-  });
+        // Match password
+        bcrypt.compare(password, Admin.password, (err, isMatch) => {
+          if (err) throw err;
+          if (isMatch) {
+            return done(null, Admin);
+          } else {
+            return done(null, false, { message: "Password incorrect" });
+          }
+        });
+      });
+    })
+  );
 };
